@@ -16,21 +16,28 @@ import Data.List (catMaybes)
 import Data.Array (intersect, foldM, snoc)
 import Data.Traversable (sequenceDefault)
 
+
+-- the Control.XStream library is lacking some stuff:
+-- ways to dispose the streams
+-- access to _n _c _e
+-- fromObservable ?
+
+
 -- it's a  XS.Listener...
 -- type FantasyObserver x r c = { next :: x -> Void
  -- , error :: r -> Void
  --                            , complete :: c -> Void
  --                            }
 
--- Questo che roba e'?
-type FantasySubscription = { unsubscribe :: Unit -> Void }
+-- Questo che roba e'? e' un'interfaccia, penso che possiamo rimuoverla
+-- type FantasySubscription = { unsubscribe :: Unit -> Void }
 
-type FantasyObservable e a = { subscribe :: XS.Listener e a -> FantasySubscription}
+-- type FantasyObservable e a = { subscribe :: XS.Listener e a -> FantasySubscription}
 
 type MemoryStream e a = XS.EffS e (XS.Stream a)
 
 type Sources a = SM.StrMap a
-type Sinks e a = SM.StrMap (FantasyObservable e a)
+type Sinks e a s = SM.StrMap (MemoryStream (st :: ST s | e) a)
 type SinkProxies e a = SM.StrMap (MemoryStream e a)
 type Driver e a = MemoryStream e a -> String -> a
 type Drivers e a = SM.StrMap (Driver e a)
@@ -50,15 +57,6 @@ type SinkReplicators e a s = SMT.STStrMap s (XS.Listener (st :: ST s | e) a)
 
 emptyProducer :: forall e a. XS.EffS e (XS.Stream a)
 emptyProducer = XS.createWithMemory { start: \_ -> pure unit, stop: \_ -> pure unit }
-
--- for const name in drivers
--- sinkProxies[name] = xs.createWithMemory()
-
--- type EffS e a = Eff (stream :: STREAM | e) a
--- createWithMemory :: forall e a. Producer e a -> EffS e (Stream a)
--- type Listener e a = { next :: a -> EffS e Unit, error :: Error -> EffS e Unit, complete :: Unit -> EffS e Unit }
--- type Producer e a = { start: Listener e a -> EffS e Unit, stop :: Unit -> EffS e Unit }
-
 
 makeSinkProxies :: forall e a. Drivers e a -> SinkProxies e a
 makeSinkProxies drivers =
@@ -111,15 +109,68 @@ updateBuffersAndReplicators names buffers replicators =
                    }
       pure unit
 
-replicateMany :: forall e a s. Sinks e a -> SinkProxies e a -> XS.EffS (st :: ST s | e) Unit
+createSubscriptions
+ :: forall e a s
+  . Array String
+ -> SinkReplicators e a s
+ -> Sinks e a s
+ -> XS.EffS (st :: ST s | e) Unit
+createSubscriptions names replicators streams =
+  foreachE names \n ->
+    case (SM.lookup n streams) of
+      (Just s') -> do
+        s <- s'
+        rs' <- SM.freezeST replicators
+        case (SM.lookup n rs') of
+          (Just r) ->
+            XS.addListener r s
+          _ -> pure unit
+      _ -> pure unit
+
+callBuffer
+  :: forall e a s
+   . String
+  -> XS.EffS (st :: ST s | e) (ReplicationBuffers a s)
+  -> MemoryStream e a
+  -> XS.EffS (st :: ST s | e) Unit
+callBuffer name buffers listener = do
+  bs' <- buffers
+  bs <- SM.freezeST bs'
+  case SM.lookup name bs of
+    (Just b) ->
+      foreachE b._n \n' -> listener._n n' -- it's hidden in ps, we can' access it.
+      foreachE b._e \e' -> listener._e e'
+      pure unit
+    _ -> pure unit
+
+updatePBR
+  :: forall e a s
+   . Array String
+  -> SinkProxies e a
+  -> XS.EffS (st :: ST s | e) (ReplicationBuffers a s)
+  -> SinkReplicators e a s
+  -> XS.EffS (st :: ST s | e) Unit
+updatePBR names sinkProxies buffers replicators =
+  foreachE names \n ->
+    case SM.lookup n sinkProxies of
+      (Just listener) -> do
+        callBuffer n buffers listener
+        -- chiama tutti next e error sui buffer _n e _e
+        -- setta i next e error dei replicators come next e error
+        -- idem su _n e _e .
+        pure unit
+      _ -> pure unit
+
+replicateMany :: forall e a s. Sinks e a s -> SinkProxies e a -> XS.EffS (st :: ST s | e) Unit
 replicateMany sinks sinkProxies = do
   let names = intersect (SM.keys sinks) (SM.keys sinkProxies)
   buffers <- (SMT.new :: (XS.EffS (st :: ST s | e) (ReplicationBuffers a s)))
   replicators <- (SMT.new :: (XS.EffS (st :: ST s | e) (SinkReplicators e a s)))
   void $ updateBuffersAndReplicators names buffers replicators
+  void $ createSubscriptions names replicators sinks
   pure unit
-  -- crea subscriptions con xs fromObservable .subscribe replicator
-  -- itera i names di nuovo e fa operazioni varie su buffer
+
+ -- itera i names di nuovo e fa operazioni varie su buffer
 
 -- function replicateMany<So extends Sources, Si extends Sinks>(
 --                       sinks: Si,
