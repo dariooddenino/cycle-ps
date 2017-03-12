@@ -11,87 +11,52 @@ import Data.StrMap as SM
 import Control.Monad.ST (ST)
 import Data.StrMap.ST as SMT
 import Data.Tuple (Tuple(..))
-import Data.Maybe (Maybe, Maybe(..))
+import Data.Maybe (isJust, Maybe(..))
 import Data.List (catMaybes)
-import Data.Array (intersect, foldM, snoc)
-import Data.Traversable (sequenceDefault)
-
-
--- the Control.XStream library is lacking some stuff:
--- ways to dispose the streams
--- access to _n _c _e
--- fromObservable ?
-
-
--- it's a  XS.Listener...
--- type FantasyObserver x r c = { next :: x -> Void
- -- , error :: r -> Void
- --                            , complete :: c -> Void
- --                            }
-
--- Questo che roba e'? e' un'interfaccia, penso che possiamo rimuoverla
--- type FantasySubscription = { unsubscribe :: Unit -> Void }
-
--- type FantasyObservable e a = { subscribe :: XS.Listener e a -> FantasySubscription}
+import Data.Array (intersect, foldM, snoc, filter)
+import Data.Traversable (sequenceDefault, traverseDefault, traverse_, for_)
 
 type MemoryStream e a = XS.EffS e (XS.Stream a)
 
-type Sources a = SM.StrMap a
+type Sources e a s = SM.StrMap (MemoryStream (st :: ST s | e) a)
 type Sinks e a s = SM.StrMap (MemoryStream (st :: ST s | e) a)
-type SinkProxies e a = SM.StrMap (MemoryStream e a)
-type Driver e a = MemoryStream e a -> String -> a
-type Drivers e a = SM.StrMap (Driver e a)
-type DisposeFunction eff = Unit -> Eff eff Unit
+type SinkProxies e a s = SM.StrMap (MemoryStream (st :: ST s | e) a)
+type Driver e a s = MemoryStream (st :: ST s | e) a -> String -> MemoryStream (st :: ST s | e) a
+type Drivers e a s = SM.StrMap (Driver e a s)
+type DisposeFunction e s = Unit -> XS.EffS (st :: ST s | e) Unit
 
 type ReplicationBuffer a = { _n :: Array a, _e :: Array Error }
 type ReplicationBuffers a s = SMT.STStrMap s (ReplicationBuffer a)
 
 type SinkReplicators e a s = SMT.STStrMap s (XS.Listener (st :: ST s | e) a)
-
--- Questa e' una dispose function.
--- deve poter chiamare unsubsribe e sta funzione c() dei sinkProxies
--- disposeReplication() {
---   subscriptions.forEach(s => s.unsubscribe())
---   sinkNames.forEach((name) => sinkProxies[name]._c())
---                      }
-
+-- for_ mayeSource effectfulcomputation
 emptyProducer :: forall e a. XS.EffS e (XS.Stream a)
 emptyProducer = XS.createWithMemory { start: \_ -> pure unit, stop: \_ -> pure unit }
 
-makeSinkProxies :: forall e a. Drivers e a -> SinkProxies e a
+makeSinkProxies :: forall e a s. Drivers e a s -> SinkProxies e a s
 makeSinkProxies drivers =
   SM.fromFoldable $ (\k -> (Tuple k emptyProducer)) <$> SM.keys drivers
 
-_createSource :: forall e a. SinkProxies e a -> String -> Driver e a -> Maybe a
+_createSource :: forall e a s. SinkProxies e a s -> String -> Driver e a s -> Maybe (MemoryStream (st :: ST s | e) a)
 _createSource sinkProxies k d = (\s -> d s k) <$> (SM.lookup k sinkProxies)
 
-_filterStrMap :: forall a. SM.StrMap (Maybe a) -> SM.StrMap a
+_filterStrMap :: forall e a s. SM.StrMap (Maybe (MemoryStream (st :: ST s | e) a)) -> SM.StrMap (MemoryStream (st :: ST s | e) a)
 _filterStrMap m = SM.fromFoldable $ catMaybes $ sequenceDefault <$> SM.toList m
 
-callDrivers :: forall e a. Drivers e a -> SinkProxies e a -> Sources a
+callDrivers :: forall e a s. Drivers e a s -> SinkProxies e a s -> Sources e a s
 callDrivers drivers sinkProxies =
   _filterStrMap $
     SM.mapWithKey (_createSource sinkProxies) drivers
 
--- update :: (a -> Maybe a) -> String -> StrMap a -> StrMap a
-
---_updateBufferNext :: forall a b. String -> a -> b -> ReplicationBuffers a b
--- _updateBuffers key a b = update (f a b) key where
---  f a b k = Nothing
-
 updateBufferNext :: forall e a s. (ReplicationBuffers a s) -> String -> a -> XS.EffS (st :: ST s | e) Unit
 updateBufferNext buffer name value = do
   currValue <- SMT.peek buffer name
-  case currValue of
-    Just c -> void $ SMT.poke buffer name { _n: (snoc c._n value), _e: c._e }
-    _ -> pure unit
+  for_ currValue \c -> void $ SMT.poke buffer name { _n: (snoc c._n value), _e: c._e }
 
 updateBufferError :: forall e a s. (ReplicationBuffers a s) -> String -> Error -> XS.EffS (st :: ST s | e) Unit
 updateBufferError buffer name value = do
-  currValue <-SMT.peek buffer name
-  case currValue of
-    Just c -> void $ SMT.poke buffer name { _n: c._n, _e: (snoc c._e value) }
-    _ -> pure unit
+  currValue <- SMT.peek buffer name
+  for_ currValue \c -> void $ SMT.poke buffer name { _n: c._n, _e: ( snoc c._e value )}
 
 updateBuffersAndReplicators
   :: forall e a s
@@ -110,145 +75,102 @@ updateBuffersAndReplicators names buffers replicators =
       pure unit
 
 createSubscriptions
- :: forall e a s
-  . Array String
- -> SinkReplicators e a s
- -> Sinks e a s
- -> XS.EffS (st :: ST s | e) Unit
+  :: forall e a s
+   . Array String
+  -> SinkReplicators e a s
+  -> Sinks e a s
+  -> XS.EffS (st :: ST s | e) (Array (Maybe XS.Subscription))
 createSubscriptions names replicators streams =
-  foreachE names \n ->
-    case (SM.lookup n streams) of
-      (Just s') -> do
-        s <- s'
-        rs' <- SM.freezeST replicators
-        case (SM.lookup n rs') of
-          (Just r) ->
-            XS.addListener r s
-          _ -> pure unit
-      _ -> pure unit
+  traverseDefault
+    (\n ->
+      case (SM.lookup n streams) of
+        Just s' -> do
+          s <- s'
+          rs' <- SM.freezeST replicators
+          case (SM.lookup n rs') of
+            (Just r) ->
+              Just <$> XS.subscribe r s
+            _ -> pure Nothing
+        _ -> pure Nothing
+      ) names
 
 callBuffer
   :: forall e a s
    . String
-  -> XS.EffS (st :: ST s | e) (ReplicationBuffers a s)
-  -> MemoryStream e a
+  -> ReplicationBuffers a s
+  -> (a -> XS.EffS (st :: ST s | e) Unit)
+  -> (Error -> XS.EffS (st :: ST s | e) Unit)
   -> XS.EffS (st :: ST s | e) Unit
-callBuffer name buffers listener = do
-  bs' <- buffers
-  bs <- SM.freezeST bs'
-  case SM.lookup name bs of
-    (Just b) ->
-      foreachE b._n \n' -> listener._n n' -- it's hidden in ps, we can' access it.
-      foreachE b._e \e' -> listener._e e'
-      pure unit
-    _ -> pure unit
+callBuffer name buffers next error = do
+  buffer <- SMT.peek buffers name
+  for_ buffer \b -> do
+      traverse_ next b._n
+      traverse_ error b._e
 
 updatePBR
   :: forall e a s
    . Array String
-  -> SinkProxies e a
-  -> XS.EffS (st :: ST s | e) (ReplicationBuffers a s)
+  -> SinkProxies e a s
+  -> ReplicationBuffers a s
   -> SinkReplicators e a s
   -> XS.EffS (st :: ST s | e) Unit
 updatePBR names sinkProxies buffers replicators =
   foreachE names \n ->
-    case SM.lookup n sinkProxies of
-      (Just listener) -> do
-        callBuffer n buffers listener
-        -- chiama tutti next e error sui buffer _n e _e
-        -- setta i next e error dei replicators come next e error
-        -- idem su _n e _e .
-        pure unit
+   case SM.lookup n sinkProxies of
+     (Just listener) -> do
+       l <- listener
+       let
+         next :: a -> XS.EffS (st :: ST s | e) Unit
+         next = flip XS.shamefullySendNext l
+         error :: Error -> XS.EffS (st :: ST s | e) Unit
+         error = flip XS.shamefullySendError l
+       callBuffer n buffers next error
+       SMT.poke replicators n { next, error, complete: \_ -> pure unit }
+       -- we can't set _n and _e!
+       pure unit
+     _ -> pure unit
+
+
+dispose
+  :: forall e a s
+   . Array (Maybe XS.Subscription)
+  -> SinkProxies e a s
+  -> Array String
+  -> DisposeFunction e s
+dispose subscriptions proxies names = \_ -> do
+  traverse_ (\sub -> case sub of
+                Just s -> XS.cancelSubscription s
+                _ -> pure unit)
+    subscriptions
+  foreachE names \n ->
+    case SM.lookup n proxies of
+      (Just proxy) -> proxy >>= \p ->
+                      XS.shamefullySendComplete unit p
       _ -> pure unit
 
-replicateMany :: forall e a s. Sinks e a s -> SinkProxies e a -> XS.EffS (st :: ST s | e) Unit
+replicateMany
+  :: forall e a s
+   . Sinks e a s
+  -> SinkProxies e a s
+  -> XS.EffS (st :: ST s | e) (DisposeFunction e s)
 replicateMany sinks sinkProxies = do
   let names = intersect (SM.keys sinks) (SM.keys sinkProxies)
   buffers <- (SMT.new :: (XS.EffS (st :: ST s | e) (ReplicationBuffers a s)))
   replicators <- (SMT.new :: (XS.EffS (st :: ST s | e) (SinkReplicators e a s)))
   void $ updateBuffersAndReplicators names buffers replicators
-  void $ createSubscriptions names replicators sinks
-  pure unit
+  subscriptions <- createSubscriptions names replicators sinks
+  updatePBR names sinkProxies buffers replicators
+  -- delete map buffers?
+  pure $ dispose subscriptions sinkProxies names
 
- -- itera i names di nuovo e fa operazioni varie su buffer
-
--- function replicateMany<So extends Sources, Si extends Sinks>(
---                       sinks: Si,
---                       sinkProxies: SinkProxies<Si>): DisposeFunction {
---   const sinkNames: Array<keyof Si> = Object.keys(sinks).filter(name => !!sinkProxies[name]);
-
---   let buffers: ReplicationBuffers<Si> = {} as ReplicationBuffers<Si>;
---   const replicators: SinkReplicators<Si> = {} as SinkReplicators<Si>;
---   sinkNames.forEach((name) => {
---     buffers[name] = {_n: [], _e: []};
---     replicators[name] = {
---       next: (x: any) => buffers[name]._n.push(x),
---       error: (err: any) => buffers[name]._e.push(err),
---       complete: () => {},
---     };
---   });
-
---   const subscriptions = sinkNames
---     .map(name => xs.fromObservable(sinks[name] as any).subscribe(replicators[name]));
-
---   sinkNames.forEach((name) => {
---     const listener = sinkProxies[name];
---     const next = (x: any) => { listener._n(x); };
---     const error = (err: any) => { logToConsoleError(err); listener._e(err); };
---     buffers[name]._n.forEach(next);
---     buffers[name]._e.forEach(error);
---     replicators[name].next = next;
---     replicators[name].error = error;
---     // because sink.subscribe(replicator) had mutated replicator to add
---     // _n, _e, _c, we must also update these:
---     replicators[name]._n = next;
---     replicators[name]._e = error;
---   });
---   buffers = null as any; // free up for GC
-
---   return function disposeReplication() {
---     subscriptions.forEach(s => s.unsubscribe());
---     sinkNames.forEach((name) => sinkProxies[name]._c());
---   };
--- }
-
-
-run :: forall e a. (Sources a -> Sinks e a) -> Drivers e a -> Unit
+run
+  :: forall e a s
+   . (Sources e a s -> Sinks e a s)
+  -> Drivers e a s
+  -> XS.EffS (st :: ST s | e) (DisposeFunction e s)
 run main drivers = do
   let
     sinkProxies = makeSinkProxies drivers
     sources = callDrivers drivers sinkProxies
-    -- adaptedSources = adaptSources sources ?? boh e poi la passerebbe al main sotto
     sinks = main sources
---     disposeReplication = replicateMany sinks sinkProxies -- questo e' un eff, andrebbe col <-
-  -- return function dispose () {
-   -- disposeSources sources
-  -- disposeReplication
-  -- }
-  unit
-
-
--- -- -- --
-
--- The important thing to know while using iti s that `pureST :: (forall s. Eff (st :: ST s) a) -> a` is used like
-
--- ```add2Items strMap k1 a1 k2 a2 = pureST do
---   mutableStrMap <- StrMap.thawST strMap
---   StrMap.ST.poke mutableStrMap k1 a1
---   StrMap.ST.poke mutableStrMap k2 a2
---   copiedNewMap <- StrMap.freezeST mutableStrMap
---   pure copiedNewMap
--- ```
-
--- parsonsmatt [7:28 PM]
--- so I think your `filter` function could be implemented like
-
--- ```_filterStrMap :: forall a. SM.STrMap (Maybe a) -> SM.StrMap a
--- _filterStrMap oldMap = pureST do
---   newMap <- ST.new
---   foldM oldMap \acc key maybeA ->
---     for maybeA \a -> ST.poke newMap key a
---   freezeST newMap
--- ```
-
--- or `foldM oldMap \_ key -> traverse (ST.poke newMap key)`, if you want it a little more concise
+  replicateMany sinks sinkProxies
