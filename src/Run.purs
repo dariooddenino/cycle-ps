@@ -15,21 +15,21 @@ import Data.Maybe (isJust, Maybe(..))
 import Data.List (catMaybes)
 import Data.Array (intersect, foldM, snoc, filter)
 import Data.Traversable (sequenceDefault, traverseDefault, traverse_, for_)
+import Debug.Trace
+
+foreign import _fixReplicator :: forall e a s. XS.Listener (st :: ST s | e) a -> XS.EffS (st :: ST s | e) Unit
 
 type MemoryStream e a = XS.EffS e (XS.Stream a)
-
 type Sources e a s = SM.StrMap (MemoryStream (st :: ST s | e) a)
 type Sinks e a s = SM.StrMap (MemoryStream (st :: ST s | e) a)
 type SinkProxies e a s = SM.StrMap (MemoryStream (st :: ST s | e) a)
 type Driver e a s = MemoryStream (st :: ST s | e) a -> String -> MemoryStream (st :: ST s | e) a
 type Drivers e a s = SM.StrMap (Driver e a s)
 type DisposeFunction e s = Unit -> XS.EffS (st :: ST s | e) Unit
-
 type ReplicationBuffer a = { _n :: Array a, _e :: Array Error }
 type ReplicationBuffers a s = SMT.STStrMap s (ReplicationBuffer a)
-
 type SinkReplicators e a s = SMT.STStrMap s (XS.Listener (st :: ST s | e) a)
--- for_ mayeSource effectfulcomputation
+
 emptyProducer :: forall e a. XS.EffS e (XS.Stream a)
 emptyProducer = XS.createWithMemory { start: \_ -> pure unit, stop: \_ -> pure unit }
 
@@ -38,7 +38,8 @@ makeSinkProxies drivers =
   SM.fromFoldable $ (\k -> (Tuple k emptyProducer)) <$> SM.keys drivers
 
 _createSource :: forall e a s. SinkProxies e a s -> String -> Driver e a s -> Maybe (MemoryStream (st :: ST s | e) a)
-_createSource sinkProxies k d = (\s -> d s k) <$> (SM.lookup k sinkProxies)
+_createSource sinkProxies k d =
+  (\s -> d s k) <$> (SM.lookup k sinkProxies)
 
 _filterStrMap :: forall e a s. SM.StrMap (Maybe (MemoryStream (st :: ST s | e) a)) -> SM.StrMap (MemoryStream (st :: ST s | e) a)
 _filterStrMap m = SM.fromFoldable $ catMaybes $ sequenceDefault <$> SM.toList m
@@ -88,7 +89,7 @@ createSubscriptions names replicators streams =
           s <- s'
           rs' <- SM.freezeST replicators
           case (SM.lookup n rs') of
-            (Just r) ->
+            (Just r) -> do
               Just <$> XS.subscribe r s
             _ -> pure Nothing
         _ -> pure Nothing
@@ -120,13 +121,12 @@ updatePBR names sinkProxies buffers replicators =
      (Just listener) -> do
        l <- listener
        let
-         next :: a -> XS.EffS (st :: ST s | e) Unit
-         next = flip XS.shamefullySendNext l
-         error :: Error -> XS.EffS (st :: ST s | e) Unit
-         error = flip XS.shamefullySendError l
+         next = \a -> XS.shamefullySendNext a l
+         error = \e -> XS.shamefullySendError e l
        callBuffer n buffers next error
-       SMT.poke replicators n { next, error, complete: \_ -> pure unit }
-       -- we can't set _n and _e!
+       SMT.poke replicators n { next: next, error: error, complete: \_ -> pure unit }
+       r <- SMT.peek replicators n
+       for_ r _fixReplicator
        pure unit
      _ -> pure unit
 
@@ -138,10 +138,8 @@ dispose
   -> Array String
   -> DisposeFunction e s
 dispose subscriptions proxies names = \_ -> do
-  traverse_ (\sub -> case sub of
-                Just s -> XS.cancelSubscription s
-                _ -> pure unit)
-    subscriptions
+  traverse_ (traverse_ XS.cancelSubscription) subscriptions
+
   foreachE names \n ->
     case SM.lookup n proxies of
       (Just proxy) -> proxy >>= \p ->
@@ -158,8 +156,8 @@ replicateMany sinks sinkProxies = do
   buffers <- (SMT.new :: (XS.EffS (st :: ST s | e) (ReplicationBuffers a s)))
   replicators <- (SMT.new :: (XS.EffS (st :: ST s | e) (SinkReplicators e a s)))
   void $ updateBuffersAndReplicators names buffers replicators
-  subscriptions <- createSubscriptions names replicators sinks
   updatePBR names sinkProxies buffers replicators
+  subscriptions <- createSubscriptions names replicators sinks
   -- delete map buffers?
   pure $ dispose subscriptions sinkProxies names
 

@@ -9,18 +9,19 @@ import Run
 import Data.StrMap as StrMap
 import Control.XStream as XS
 import Data.Tuple
+import Debug.Trace
 
--- main'
---   :: forall e a s
---    . Sources e a s
---   -> Sinks (timer :: TIMER | e) Int s
-main' _ = StrMap.fromFoldable [(Tuple "TIMER" (XS.periodic 100))]
+main'
+  :: forall e s
+   . Sources (timer :: TIMER | e) Int s
+  -> Sinks (timer :: TIMER | e) Int s
+main' _ =
+  StrMap.fromFoldable [(Tuple "TIMER" (XS.periodic 2000))]
 
 logDriver
-  :: forall e a s
-   . Show a
-  => Driver (console :: CONSOLE | e) a s
-logDriver sink _ = do
+  :: forall e s
+   . Driver (console :: CONSOLE | e) Int s
+logDriver sink k = do
   s <- sink
   XS.addListener { next: \i -> log $ show i
                  , error: \_ -> pure unit
@@ -29,8 +30,13 @@ logDriver sink _ = do
                  s
   XS.create'
 
--- main :: forall e s. XS.EffS (st :: ST s, timer :: TIMER, console :: CONSOLE | e) Unit
+main :: forall e s. XS.EffS (st :: ST s, timer :: TIMER, console :: CONSOLE | e) Unit
 main = do
   log "Starting"
-  void $ run main' $ StrMap.fromFoldable [(Tuple "TIMER" logDriver)]
-  log "Hello sailor!"
+  let
+    lis :: XS.Listener (timer :: TIMER, console :: CONSOLE, st :: ST s | e) Int
+    lis = { next: \i -> log $ show i, error: \_ -> pure unit, complete: \_ -> pure unit }
+  du <- XS.create'
+  XS.subscribe lis du
+  XS.shamefullySendNext 3 du
+  void $ run main' (StrMap.fromFoldable [(Tuple "TIMER" logDriver)])
