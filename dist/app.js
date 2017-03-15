@@ -15475,60 +15475,42 @@ var Data_StrMap = require("../Data.StrMap");
 var Control_XStream = require("../Control.XStream");
 var Data_Tuple = require("../Data.Tuple");
 var Debug_Trace = require("../Debug.Trace");
+var Data_Newtype = require("../Data.Newtype");
 var Data_Foldable = require("../Data.Foldable");
-var Control_Bind = require("../Control.Bind");
-var Data_Function = require("../Data.Function");
-var Data_Show = require("../Data.Show");
-var Control_Applicative = require("../Control.Applicative");
-var Data_Unit = require("../Data.Unit");
-var Data_Functor = require("../Data.Functor");
 var main$prime = function (v) {
     return Data_StrMap.fromFoldable(Data_Foldable.foldableArray)([ new Data_Tuple.Tuple("TIMER", Control_XStream.periodic(2000)) ]);
 };
-var logDriver = function (sink) {
-    return function (k) {
-        return function __do() {
-            var v = sink();
-            Control_XStream.addListener({
-                next: function (i) {
-                    return Control_Monad_Eff_Console.log(Data_Show.show(Data_Show.showInt)(i));
-                }, 
-                error: function (v1) {
-                    return Control_Applicative.pure(Control_Monad_Eff.applicativeEff)(Data_Unit.unit);
-                }, 
-                complete: function (v1) {
-                    return Control_Applicative.pure(Control_Monad_Eff.applicativeEff)(Data_Unit.unit);
-                }
-            })(v)();
-            return Control_XStream["create'"]();
-        };
-    };
-};
-var main = function __do() {
-    Control_Monad_Eff_Console.log("Starting")();
-    var lis = {
-        next: function (i) {
-            return Control_Monad_Eff_Console.log(Data_Show.show(Data_Show.showInt)(i));
-        }, 
-        error: function (v) {
-            return Control_Applicative.pure(Control_Monad_Eff.applicativeEff)(Data_Unit.unit);
-        }, 
-        complete: function (v) {
-            return Control_Applicative.pure(Control_Monad_Eff.applicativeEff)(Data_Unit.unit);
-        }
-    };
-    var v = Control_XStream["create'"]();
-    Control_XStream.subscribe(lis)(v)();
-    Control_XStream.shamefullySendNext(3)(v)();
-    return Data_Functor["void"](Control_Monad_Eff.functorEff)(Run.run(main$prime)(Data_StrMap.fromFoldable(Data_Foldable.foldableArray)([ new Data_Tuple.Tuple("TIMER", logDriver) ])))();
-};
+
+//logDriver
+
+//  :: forall s e
+
+//   . CycleEff s e (Driver s (console :: CONSOLE | e) Int)
+
+//logDriver = pure $ \sink k -> do
+
+//  let s = unwrap sink
+
+//  s <- sink
+
+// XS.addListener { next: \i -> log $ show i
+
+//             , error: \_ -> pure unit
+
+//             , complete: \_ -> pure unit
+
+//             } s
+
+//  addListener { next: log <<< show, error: const $ pure unit, complete: const $ pure unit } sink
+
+//  Source emptyProducer
+var main = Control_Monad_Eff_Console.log("Starting");
 module.exports = {
-    logDriver: logDriver, 
     main: main, 
     "main'": main$prime
 };
 
-},{"../Control.Applicative":3,"../Control.Bind":9,"../Control.Monad.Eff":32,"../Control.Monad.Eff.Console":22,"../Control.Monad.Eff.Timer":28,"../Control.Monad.ST":40,"../Control.XStream":53,"../Data.Foldable":80,"../Data.Function":83,"../Data.Functor":87,"../Data.Show":120,"../Data.StrMap":124,"../Data.Tuple":131,"../Data.Unit":135,"../Debug.Trace":138,"../Prelude":144,"../Run":146}],140:[function(require,module,exports){
+},{"../Control.Monad.Eff":32,"../Control.Monad.Eff.Console":22,"../Control.Monad.Eff.Timer":28,"../Control.Monad.ST":40,"../Control.XStream":53,"../Data.Foldable":80,"../Data.Newtype":106,"../Data.StrMap":124,"../Data.Tuple":131,"../Debug.Trace":138,"../Prelude":144,"../Run":146}],140:[function(require,module,exports){
 "use strict";
 
 // module Partial.Unsafe
@@ -15644,6 +15626,7 @@ var Data_List = require("../Data.List");
 var Data_Array = require("../Data.Array");
 var Data_Traversable = require("../Data.Traversable");
 var Debug_Trace = require("../Debug.Trace");
+var Data_Newtype = require("../Data.Newtype");
 var Control_Bind = require("../Control.Bind");
 var Data_Foldable = require("../Data.Foldable");
 var Data_Function = require("../Data.Function");
@@ -15652,31 +15635,70 @@ var Control_Applicative = require("../Control.Applicative");
 var Data_Unit = require("../Data.Unit");
 var Data_Eq = require("../Data.Eq");
 var Data_List_Types = require("../Data.List.Types");
-var updateBufferNext = function (buffer) {
+var ReplicationBuffer = function (x) {
+    return x;
+};
+var SinkReplicator = function (x) {
+    return x;
+};
+var DisposeFunction = function (x) {
+    return x;
+};
+var Sink = function (x) {
+    return x;
+};
+var SinkProxy = function (x) {
+    return x;
+};
+var Source = function (x) {
+    return x;
+};
+var newtypeSource = new Data_Newtype.Newtype(function (n) {
+    return n;
+}, Source);
+var newtypeSinkReplicator = new Data_Newtype.Newtype(function (n) {
+    return n;
+}, SinkReplicator);
+var newtypeSinkProxy = new Data_Newtype.Newtype(function (n) {
+    return n;
+}, SinkProxy);
+var newtypeSink = new Data_Newtype.Newtype(function (n) {
+    return n;
+}, Sink);
+var newtypeReplicationBuffer = new Data_Newtype.Newtype(function (n) {
+    return n;
+}, ReplicationBuffer);
+var updateBufferError = function (buffers) {
     return function (name) {
         return function (value) {
             return function __do() {
-                var v = Data_StrMap_ST.peek(buffer)(name)();
-                return Data_Foldable.for_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableMaybe)(v)(function (c) {
-                    return Data_Functor["void"](Control_Monad_Eff.functorEff)(Data_StrMap_ST.poke(buffer)(name)({
-                        _n: Data_Array.snoc(c._n)(value), 
-                        _e: c._e
-                    }));
+                var v = Data_StrMap_ST.peek(buffers)(name)();
+                return Data_Foldable.for_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableMaybe)(v)(function (buffer) {
+                    var nb = Data_Newtype.over(newtypeReplicationBuffer)(newtypeReplicationBuffer)(ReplicationBuffer)(function (b) {
+                        return {
+                            _n: b._n, 
+                            _e: Data_Array.snoc(b._e)(value)
+                        };
+                    })(buffer);
+                    return Data_Functor["void"](Control_Monad_Eff.functorEff)(Data_StrMap_ST.poke(buffers)(name)(nb));
                 })();
             };
         };
     };
 };
-var updateBufferError = function (buffer) {
+var updateBufferNext = function (buffers) {
     return function (name) {
         return function (value) {
             return function __do() {
-                var v = Data_StrMap_ST.peek(buffer)(name)();
-                return Data_Foldable.for_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableMaybe)(v)(function (c) {
-                    return Data_Functor["void"](Control_Monad_Eff.functorEff)(Data_StrMap_ST.poke(buffer)(name)({
-                        _n: c._n, 
-                        _e: Data_Array.snoc(c._e)(value)
-                    }));
+                var v = Data_StrMap_ST.peek(buffers)(name)();
+                return Data_Foldable.for_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableMaybe)(v)(function (buffer) {
+                    var nb = Data_Newtype.over(newtypeReplicationBuffer)(newtypeReplicationBuffer)(ReplicationBuffer)(function (b) {
+                        return {
+                            _n: Data_Array.snoc(b._n)(value), 
+                            _e: b._e
+                        };
+                    })(buffer);
+                    return Data_Functor["void"](Control_Monad_Eff.functorEff)(Data_StrMap_ST.poke(buffers)(name)(nb));
                 })();
             };
         };
@@ -15709,6 +15731,9 @@ var updateBuffersAndReplicators = function (names) {
         };
     };
 };
+var fixReplicator = function (r) {
+    return $foreign._fixReplicator(Data_Newtype.unwrap(newtypeSinkReplicator)(r));
+};
 var emptyProducer = Control_XStream.createWithMemory({
     start: function (v) {
         return Control_Applicative.pure(Control_Monad_Eff.applicativeEff)(Data_Unit.unit);
@@ -15729,10 +15754,10 @@ var dispose = function (subscriptions) {
                 return function __do() {
                     Data_Foldable.traverse_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableArray)(Data_Foldable.traverse_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableMaybe)(Control_XStream.cancelSubscription))(subscriptions)();
                     return Control_Monad_Eff.foreachE(names)(function (n) {
-                        var $21 = Data_StrMap.lookup(n)(proxies);
-                        if ($21 instanceof Data_Maybe.Just) {
+                        var $37 = Data_StrMap.lookup(n)(proxies);
+                        if ($37 instanceof Data_Maybe.Just) {
                             return function __do() {
-                                var p = $21.value0();
+                                var p = $37.value0();
                                 return Control_XStream.shamefullySendComplete(Data_Unit.unit)(p)();
                             };
                         };
@@ -15747,14 +15772,14 @@ var createSubscriptions = function (names) {
     return function (replicators) {
         return function (streams) {
             return Data_Traversable.traverseDefault(Data_Traversable.traversableArray)(Control_Monad_Eff.applicativeEff)(function (n) {
-                var $23 = Data_StrMap.lookup(n)(streams);
-                if ($23 instanceof Data_Maybe.Just) {
+                var $39 = Data_StrMap.lookup(n)(streams);
+                if ($39 instanceof Data_Maybe.Just) {
                     return function __do() {
-                        var v = $23.value0();
+                        var v = $39.value0();
                         var v1 = Data_StrMap.freezeST(replicators)();
-                        var $26 = Data_StrMap.lookup(n)(v1);
-                        if ($26 instanceof Data_Maybe.Just) {
-                            return Data_Functor.map(Control_Monad_Eff.functorEff)(Data_Maybe.Just.create)(Control_XStream.subscribe($26.value0)(v))();
+                        var $42 = Data_StrMap.lookup(n)(v1);
+                        if ($42 instanceof Data_Maybe.Just) {
+                            return Data_Functor.map(Control_Monad_Eff.functorEff)(Data_Maybe.Just.create)(Control_XStream.subscribe($42.value0)(v))();
                         };
                         return Data_Maybe.Nothing.value;
                     };
@@ -15770,10 +15795,10 @@ var callBuffer = function (name) {
             return function (error) {
                 return function __do() {
                     var v = Data_StrMap_ST.peek(buffers)(name)();
-                    return Data_Foldable.for_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableMaybe)(v)(function (b) {
+                    return Data_Foldable.for_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableMaybe)(v)(function (v1) {
                         return function __do() {
-                            Data_Foldable.traverse_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableArray)(next)(b._n)();
-                            return Data_Foldable.traverse_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableArray)(error)(b._e)();
+                            Data_Foldable.traverse_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableArray)(next)(v1._n)();
+                            return Data_Foldable.traverse_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableArray)(error)(v1._e)();
                         };
                     })();
                 };
@@ -15786,10 +15811,10 @@ var updatePBR = function (names) {
         return function (buffers) {
             return function (replicators) {
                 return Control_Monad_Eff.foreachE(names)(function (n) {
-                    var $30 = Data_StrMap.lookup(n)(sinkProxies);
-                    if ($30 instanceof Data_Maybe.Just) {
+                    var $47 = Data_StrMap.lookup(n)(sinkProxies);
+                    if ($47 instanceof Data_Maybe.Just) {
                         return function __do() {
-                            var v = $30.value0();
+                            var v = $47.value0();
                             var next = function (a) {
                                 return Control_XStream.shamefullySendNext(a)(v);
                             };
@@ -15805,7 +15830,7 @@ var updatePBR = function (names) {
                                 }
                             })();
                             var v1 = Data_StrMap_ST.peek(replicators)(n)();
-                            Data_Foldable.for_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableMaybe)(v1)($foreign._fixReplicator)();
+                            Data_Foldable.for_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableMaybe)(v1)(fixReplicator)();
                             return Data_Unit.unit;
                         };
                     };
@@ -15828,14 +15853,30 @@ var replicateMany = function (sinks) {
         };
     };
 };
+var addListener = function (listener) {
+    return function (stream) {
+        return function __do() {
+            var s = Data_Newtype.unwrap(newtypeSink)(stream)();
+            return Control_XStream.addListener(listener)(s)();
+        };
+    };
+};
+
+// case (SM.lookup k sinkProxies) of
+
+//   (Just s) -> Just $ over Driver (\d -> d s k) driver
+
+//   _ -> Nothing
+
+//  (\s -> (over Driver (\d -> d s k))) <$> (SM.lookup k sinkProxies)
 var _filterStrMap = function (m) {
     return Data_StrMap.fromFoldable(Data_List_Types.foldableList)(Data_List.catMaybes(Data_Functor.map(Data_List_Types.functorList)(Data_Traversable.sequenceDefault(Data_Tuple.traversableTuple)(Data_Maybe.applicativeMaybe))(Data_StrMap.toList(m))));
 };
 var _createSource = function (sinkProxies) {
     return function (k) {
-        return function (d) {
+        return function (driver) {
             return Data_Functor.map(Data_Maybe.functorMaybe)(function (s) {
-                return d(s)(k);
+                return driver(s)(k);
             })(Data_StrMap.lookup(k)(sinkProxies));
         };
     };
@@ -15854,13 +15895,21 @@ var run = function (main) {
     };
 };
 module.exports = {
+    DisposeFunction: DisposeFunction, 
+    ReplicationBuffer: ReplicationBuffer, 
+    Sink: Sink, 
+    SinkProxy: SinkProxy, 
+    SinkReplicator: SinkReplicator, 
+    Source: Source, 
     _createSource: _createSource, 
     _filterStrMap: _filterStrMap, 
+    addListener: addListener, 
     callBuffer: callBuffer, 
     callDrivers: callDrivers, 
     createSubscriptions: createSubscriptions, 
     dispose: dispose, 
     emptyProducer: emptyProducer, 
+    fixReplicator: fixReplicator, 
     makeSinkProxies: makeSinkProxies, 
     replicateMany: replicateMany, 
     run: run, 
@@ -15868,10 +15917,15 @@ module.exports = {
     updateBufferNext: updateBufferNext, 
     updateBuffersAndReplicators: updateBuffersAndReplicators, 
     updatePBR: updatePBR, 
+    newtypeSource: newtypeSource, 
+    newtypeSink: newtypeSink, 
+    newtypeSinkProxy: newtypeSinkProxy, 
+    newtypeReplicationBuffer: newtypeReplicationBuffer, 
+    newtypeSinkReplicator: newtypeSinkReplicator, 
     _fixReplicator: $foreign._fixReplicator
 };
 
-},{"../Control.Applicative":3,"../Control.Bind":9,"../Control.Monad.Eff":32,"../Control.Monad.Eff.Class":20,"../Control.Monad.Eff.Console":22,"../Control.Monad.Eff.Exception":24,"../Control.Monad.ST":40,"../Control.XStream":53,"../Data.Array":58,"../Data.Eq":75,"../Data.Foldable":80,"../Data.Function":83,"../Data.Functor":87,"../Data.List":94,"../Data.List.Types":93,"../Data.Maybe":97,"../Data.StrMap":124,"../Data.StrMap.ST":122,"../Data.Traversable":130,"../Data.Tuple":131,"../Data.Unit":135,"../Debug.Trace":138,"../Prelude":144,"./foreign":145}],147:[function(require,module,exports){
+},{"../Control.Applicative":3,"../Control.Bind":9,"../Control.Monad.Eff":32,"../Control.Monad.Eff.Class":20,"../Control.Monad.Eff.Console":22,"../Control.Monad.Eff.Exception":24,"../Control.Monad.ST":40,"../Control.XStream":53,"../Data.Array":58,"../Data.Eq":75,"../Data.Foldable":80,"../Data.Function":83,"../Data.Functor":87,"../Data.List":94,"../Data.List.Types":93,"../Data.Maybe":97,"../Data.Newtype":106,"../Data.StrMap":124,"../Data.StrMap.ST":122,"../Data.Traversable":130,"../Data.Tuple":131,"../Data.Unit":135,"../Debug.Trace":138,"../Prelude":144,"./foreign":145}],147:[function(require,module,exports){
 // Generated by psc version 0.10.7
 "use strict";
 var Proxy3 = (function () {

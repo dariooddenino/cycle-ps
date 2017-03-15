@@ -10,33 +10,38 @@ import Data.StrMap as StrMap
 import Control.XStream as XS
 import Data.Tuple
 import Debug.Trace
+import Data.Newtype
 
 main'
-  :: forall e s
-   . Sources (timer :: TIMER | e) Int s
-  -> Sinks (timer :: TIMER | e) Int s
+  :: forall s e
+   . Sources s (timer :: TIMER | e) Int
+  -> Sinks s (timer :: TIMER | e) Int
 main' _ =
-  StrMap.fromFoldable [(Tuple "TIMER" (XS.periodic 2000))]
+  StrMap.fromFoldable [(Tuple "TIMER" (Sink (XS.periodic 2000)))]
 
 logDriver
-  :: forall e s
-   . Driver (console :: CONSOLE | e) Int s
+  :: forall s e
+   . Driver s (console :: CONSOLE | e) Int
 logDriver sink k = do
-  s <- sink
-  XS.addListener { next: \i -> log $ show i
-                 , error: \_ -> pure unit
-                 , complete: \_ -> pure unit
-                 }
-                 s
-  XS.create'
+  -- addListener { next: log <<< show, error: const $ pure unit, complete: const $ pure unit } sink
+  Source emptyProducer
+--logDriver = pure $ \sink k -> do
+--  let s = unwrap sink
+--  s <- sink
+  -- XS.addListener { next: \i -> log $ show i
+  --             , error: \_ -> pure unit
+  --             , complete: \_ -> pure unit
+  --             } s
+--  addListener { next: log <<< show, error: const $ pure unit, complete: const $ pure unit } sink
+--  Source emptyProducer
 
 main :: forall e s. XS.EffS (st :: ST s, timer :: TIMER, console :: CONSOLE | e) Unit
 main = do
   log "Starting"
-  let
-    lis :: XS.Listener (timer :: TIMER, console :: CONSOLE, st :: ST s | e) Int
-    lis = { next: \i -> log $ show i, error: \_ -> pure unit, complete: \_ -> pure unit }
-  du <- XS.create'
-  XS.subscribe lis du
-  XS.shamefullySendNext 3 du
-  void $ run main' (StrMap.fromFoldable [(Tuple "TIMER" logDriver)])
+  -- let
+  --   lis :: XS.Listener (timer :: TIMER, console :: CONSOLE, st :: ST s | e) Int
+  --   lis = { next: \i -> log $ show i, error: \_ -> pure unit, complete: \_ -> pure unit }
+  -- du <- XS.create'
+  -- XS.subscribe lis du
+  -- XS.shamefullySendNext 3 du
+--  void $ run main' (StrMap.fromFoldable [(Tuple "TIMER" logDriver)])
