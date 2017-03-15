@@ -20,18 +20,15 @@ import Data.Newtype
 
 type CycleEff s e a = XS.EffS (st :: ST s | e) a
 type Listener s e a = XS.Listener (st :: ST s | e) a
-type MemoryStream s e a = CycleEff s e (XS.Stream a)
+type MemoryStream a = XS.Stream a
 
-newtype Source s e a = Source (MemoryStream s e a)
-derive instance newtypeSource :: Newtype (Source s e a) _
+newtype Source a = Source (MemoryStream a)
+derive instance newtypeSource :: Newtype (Source a) _
 
-newtype Sink s e a = Sink (MemoryStream s e a)
-derive instance newtypeSink :: Newtype (Sink s e a) _
+newtype Sink a = Sink (MemoryStream a)
+derive instance newtypeSink :: Newtype (Sink a) _
 
--- newtype SinkProxy s e a =  SinkProxy (MemoryStream s e a)
--- derive instance newtypeSinkProxy :: Newtype (SinkProxy s e a) _
-
-type Driver s e a = Sink s e a -> String -> CycleEff s e (Source s e a)
+type Driver s e a = Sink a -> String -> CycleEff s e (Source a)
 
 newtype DisposeFunction s e = DisposeFunction (Unit -> CycleEff s e Unit)
 
@@ -41,9 +38,9 @@ derive instance newtypeReplicationBuffer :: Newtype (ReplicationBuffer a) _
 newtype SinkReplicator s e a = SinkReplicator (Listener s e a)
 derive instance newtypeSinkReplicator :: Newtype (SinkReplicator s e a) _
 
-type Sources s e a = SM.StrMap (Source s e a)
-type Sinks s e a = SM.StrMap (Sink s e a)
-type SinkProxies s e a = SM.StrMap (Sink s e a)
+type Sources a = SM.StrMap (Source a)
+type Sinks a = SM.StrMap (Sink a)
+type SinkProxies a = SM.StrMap (Sink a)
 type Drivers s e a = SM.StrMap (Driver s e a)
 type ReplicationBuffers s a = SMT.STStrMap s (ReplicationBuffer a)
 type SinkReplicators s e a = SMT.STStrMap s (SinkReplicator s e a)
@@ -51,32 +48,25 @@ type SinkReplicators s e a = SMT.STStrMap s (SinkReplicator s e a)
 foreign import _fixReplicator
   :: forall s e a
    . Listener s e a
-  -> MemoryStream s e a
---  -> (a -> CycleEff s e Unit)
---  -> (Error -> CycleEff s e Unit)
   -> CycleEff s e Unit
 
-fixReplicator
-  :: forall s e a
-   . SinkReplicator s e a
-  -> Sink s e a
-  -- -> (a -> CycleEff s e Unit)
-  -- -> (Error -> CycleEff s e Unit)
-  -> CycleEff s e Unit
-fixReplicator r s = _fixReplicator (unwrap r) (unwrap s)
-
-emptyProducer :: forall s e a. MemoryStream s e a
+emptyProducer :: forall s e a. CycleEff s e (MemoryStream a)
 emptyProducer = XS.createWithMemory { start: \_ -> pure unit, stop: \_ -> pure unit }
 
-makeSinkProxies :: forall s e a. Drivers s e a -> SinkProxies s e a
-makeSinkProxies drivers =
-  SM.fromFoldable $ (\k -> (Tuple k (Sink emptyProducer))) <$> SM.keys drivers
+makeSinkProxies :: forall s e a. Drivers s e a -> CycleEff s e (SinkProxies a)
+makeSinkProxies drivers = do
+  m <- SMT.new
+  foreachE (SM.keys drivers) \k -> do
+    s <- emptyProducer
+    SMT.poke m k (Sink s)
+    pure unit
+  SM.freezeST m
 
 callDrivers
   :: forall s e a
    . Drivers s e a
-  -> SinkProxies s e a
-  -> CycleEff s e (Sources s e a)
+  -> SinkProxies a
+  -> CycleEff s e (Sources a)
 callDrivers drivers sinkProxies = do
   sources <- SMT.new
   foreachE (SM.keys drivers) \k ->
@@ -131,14 +121,13 @@ createSubscriptions
   :: forall s e a
    . Array String
   -> SinkReplicators s e a
-  -> Sinks s e a
+  -> Sinks a
   -> CycleEff s e (Array (Maybe XS.Subscription))
 createSubscriptions names replicators streams =
   traverseDefault
     (\n ->
       case (SM.lookup n streams) of
-        Just (Sink s') -> do
-          s <- s'
+        Just (Sink s) -> do
           rs' <- SM.freezeST replicators
           case (SM.lookup n rs') of
             (Just (SinkReplicator r)) -> do
@@ -163,7 +152,7 @@ callBuffer name buffers next error = do
 updatePBR
   :: forall s e a
    . Array String
-  -> SinkProxies s e a
+  -> SinkProxies a
   -> ReplicationBuffers s a
   -> SinkReplicators s e a
   -> CycleEff s e Unit
@@ -171,24 +160,21 @@ updatePBR names sinkProxies buffers replicators =
   foreachE names \n ->
    case SM.lookup n sinkProxies of
      Just (Sink listener) -> do
-       l <- listener
-       traceAnyM l
        let
-         next = \a -> XS.shamefullySendNext a l
-         error = \e -> XS.shamefullySendError e l
+         next = \a -> XS.shamefullySendNext a listener
+         error = \e -> XS.shamefullySendError e listener
        callBuffer n buffers next error
        SMT.poke replicators n (SinkReplicator { next: next, error: error, complete: \_ -> pure unit })
        r <- SMT.peek replicators n
---       for_ r \r' -> fixReplicator r' listener
+       for_ r (_fixReplicator <<< unwrap)
        pure unit
      _ -> pure unit
 
--- everything SEEMS to work, but the issue is that
 
 dispose
   :: forall s e a
    . Array (Maybe XS.Subscription)
-  -> SinkProxies s e a
+  -> SinkProxies a
   -> Array String
   -> DisposeFunction s e
 dispose subscriptions proxies names = DisposeFunction \_ -> do
@@ -196,14 +182,14 @@ dispose subscriptions proxies names = DisposeFunction \_ -> do
 
   foreachE names \n ->
     case SM.lookup n proxies of
-      (Just (Sink proxy)) -> proxy >>= \p ->
-                      XS.shamefullySendComplete unit p
+      (Just (Sink proxy)) ->
+                      XS.shamefullySendComplete unit proxy
       _ -> pure unit
 
 replicateMany
   :: forall s e a
-   . Sinks s e a
-  -> SinkProxies s e a
+   . Sinks a
+  -> SinkProxies a
   -> CycleEff s e (DisposeFunction s e)
 replicateMany sinks sinkProxies = do
   let names = intersect (SM.keys sinks) (SM.keys sinkProxies)
@@ -217,21 +203,19 @@ replicateMany sinks sinkProxies = do
 
 run
   :: forall s e a
-   . (Sources s e a -> Sinks s e a)
+   . (Sources a -> CycleEff s e (Sinks a))
   -> Drivers s e a
   -> CycleEff s e (DisposeFunction s e)
 run main drivers = do
-  let sinkProxies = makeSinkProxies drivers
-  traceAnyM sinkProxies
+  sinkProxies <- makeSinkProxies drivers
   sources <- callDrivers drivers sinkProxies
-  let sinks = main sources
+  sinks <- main sources
   replicateMany sinks sinkProxies
 
 addListener
   :: forall s e a
    . Listener s e a
-  -> Sink s e a
+  -> Sink a
   -> CycleEff s e Unit
 addListener listener stream =
-  unwrap stream >>= \s -> do
-    XS.addListener listener s
+    XS.addListener listener (unwrap stream)

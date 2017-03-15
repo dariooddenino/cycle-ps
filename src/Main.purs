@@ -9,21 +9,22 @@ import Run
 import Data.StrMap as StrMap
 import Control.XStream as XS
 import Data.Tuple
-import Debug.Trace
 
 main'
   :: forall s e
-   . Sources s (timer :: TIMER | e) Int
-  -> Sinks s (timer :: TIMER | e) Int
-main' _ =
-  StrMap.fromFoldable [(Tuple "TIMER" (Sink (XS.periodic 500)))]
+   . Sources Int
+  -> CycleEff s (timer :: TIMER | e) (Sinks Int)
+main' _ = do
+  s <- XS.periodic 500
+  pure $ StrMap.fromFoldable [(Tuple "TIMER" (Sink s))]
 
 logDriver
   :: forall s e
    . Driver s (timer :: TIMER, console :: CONSOLE | e) Int
 logDriver sink k = do
   addListener { next: \i -> log $ show i, error: const $ pure unit, complete: const $ pure unit } sink
-  pure $ Source emptyProducer
+  e <- emptyProducer
+  pure $ Source e
 
 main :: forall s e. CycleEff s (timer :: TIMER, console :: CONSOLE | e) Unit
 main = do

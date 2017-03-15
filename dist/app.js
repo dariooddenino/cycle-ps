@@ -15475,16 +15475,18 @@ var Run = require("../Run");
 var Data_StrMap = require("../Data.StrMap");
 var Control_XStream = require("../Control.XStream");
 var Data_Tuple = require("../Data.Tuple");
-var Debug_Trace = require("../Debug.Trace");
-var Data_Foldable = require("../Data.Foldable");
 var Control_Bind = require("../Control.Bind");
 var Data_Function = require("../Data.Function");
-var Data_Show = require("../Data.Show");
 var Control_Applicative = require("../Control.Applicative");
+var Data_Foldable = require("../Data.Foldable");
+var Data_Show = require("../Data.Show");
 var Data_Unit = require("../Data.Unit");
 var Data_Functor = require("../Data.Functor");
 var main$prime = function (v) {
-    return Data_StrMap.fromFoldable(Data_Foldable.foldableArray)([ new Data_Tuple.Tuple("TIMER", Control_XStream.periodic(500)) ]);
+    return function __do() {
+        var v1 = Control_XStream.periodic(500)();
+        return Data_StrMap.fromFoldable(Data_Foldable.foldableArray)([ new Data_Tuple.Tuple("TIMER", v1) ]);
+    };
 };
 var logDriver = function (sink) {
     return function (k) {
@@ -15496,7 +15498,8 @@ var logDriver = function (sink) {
                 error: Data_Function["const"](Control_Applicative.pure(Control_Monad_Eff.applicativeEff)(Data_Unit.unit)), 
                 complete: Data_Function["const"](Control_Applicative.pure(Control_Monad_Eff.applicativeEff)(Data_Unit.unit))
             })(sink)();
-            return Run.emptyProducer;
+            var v = Run.emptyProducer();
+            return v;
         };
     };
 };
@@ -15510,7 +15513,7 @@ module.exports = {
     "main'": main$prime
 };
 
-},{"../Control.Applicative":3,"../Control.Bind":9,"../Control.Monad.Eff":32,"../Control.Monad.Eff.Console":22,"../Control.Monad.Eff.Timer":28,"../Control.Monad.ST":40,"../Control.XStream":53,"../Data.Foldable":80,"../Data.Function":83,"../Data.Functor":87,"../Data.Show":120,"../Data.StrMap":124,"../Data.Tuple":131,"../Data.Unit":135,"../Debug.Trace":138,"../Prelude":144,"../Run":146}],140:[function(require,module,exports){
+},{"../Control.Applicative":3,"../Control.Bind":9,"../Control.Monad.Eff":32,"../Control.Monad.Eff.Console":22,"../Control.Monad.Eff.Timer":28,"../Control.Monad.ST":40,"../Control.XStream":53,"../Data.Foldable":80,"../Data.Function":83,"../Data.Functor":87,"../Data.Show":120,"../Data.StrMap":124,"../Data.Tuple":131,"../Data.Unit":135,"../Prelude":144,"../Run":146}],140:[function(require,module,exports){
 "use strict";
 
 // module Partial.Unsafe
@@ -15601,29 +15604,11 @@ module.exports = {};
 
 },{"../Control.Applicative":3,"../Control.Apply":5,"../Control.Bind":9,"../Control.Category":10,"../Control.Monad":45,"../Control.Semigroupoid":51,"../Data.Boolean":67,"../Data.BooleanAlgebra":68,"../Data.Bounded":70,"../Data.CommutativeRing":71,"../Data.Eq":75,"../Data.EuclideanRing":77,"../Data.Field":78,"../Data.Function":83,"../Data.Functor":87,"../Data.HeytingAlgebra":91,"../Data.NaturalTransformation":105,"../Data.Ord":111,"../Data.Ordering":112,"../Data.Ring":114,"../Data.Semigroup":116,"../Data.Semiring":118,"../Data.Show":120,"../Data.Unit":135,"../Data.Void":136}],145:[function(require,module,exports){
 exports._fixReplicator = function (r) {
-    return function (l) {
-      return function () {
-        console.log('l', l);
-        var next = function (x) {
-          l._n(x);
-        }
-        var error = function (e) {
-          l._e(e);
-        }
-        r.next = next;
-        r.error = error
-        r._n = next
-        r._e = error
-      }
+  return function () {
+    r._n = r.next.bind(r)
+    r._e = r.error.bind(r)
   }
 }
-
-// exports._fixReplicator = function (r) {
-//   return function () {
-//     r._n = r.next.bind(r)
-//     r._e = r.error.bind(r)
-//   }
-// }
 
 },{}],146:[function(require,module,exports){
 "use strict";
@@ -15650,20 +15635,21 @@ var Data_Function = require("../Data.Function");
 var Data_Functor = require("../Data.Functor");
 var Control_Applicative = require("../Control.Applicative");
 var Data_Unit = require("../Data.Unit");
+var Control_Semigroupoid = require("../Control.Semigroupoid");
 var Data_Eq = require("../Data.Eq");
 var ReplicationBuffer = function (x) {
-    return x;
-};
-var SinkReplicator = function (x) {
-    return x;
-};
-var DisposeFunction = function (x) {
     return x;
 };
 var Sink = function (x) {
     return x;
 };
 var Source = function (x) {
+    return x;
+};
+var SinkReplicator = function (x) {
+    return x;
+};
+var DisposeFunction = function (x) {
     return x;
 };
 var newtypeSource = new Data_Newtype.Newtype(function (n) {
@@ -15745,11 +15731,6 @@ var updateBuffersAndReplicators = function (names) {
         };
     };
 };
-var fixReplicator = function (r) {
-    return function (s) {
-        return $foreign._fixReplicator(Data_Newtype.unwrap(newtypeSinkReplicator)(r))(Data_Newtype.unwrap(newtypeSink)(s));
-    };
-};
 var emptyProducer = Control_XStream.createWithMemory({
     start: function (v) {
         return Control_Applicative.pure(Control_Monad_Eff.applicativeEff)(Data_Unit.unit);
@@ -15759,12 +15740,18 @@ var emptyProducer = Control_XStream.createWithMemory({
     }
 });
 var makeSinkProxies = function (drivers) {
-    return Data_StrMap.fromFoldable(Data_Foldable.foldableArray)(Data_Functor.map(Data_Functor.functorArray)(function (k) {
-        return new Data_Tuple.Tuple(k, emptyProducer);
-    })(Data_StrMap.keys(drivers)));
+    return function __do() {
+        var v = Data_StrMap_ST["new"]();
+        Control_Monad_Eff.foreachE(Data_StrMap.keys(drivers))(function (k) {
+            return function __do() {
+                var v1 = emptyProducer();
+                Data_StrMap_ST.poke(v)(k)(v1)();
+                return Data_Unit.unit;
+            };
+        })();
+        return Data_StrMap.freezeST(v)();
+    };
 };
-
-// everything SEEMS to work, but the issue is that
 var dispose = function (subscriptions) {
     return function (proxies) {
         return function (names) {
@@ -15772,12 +15759,9 @@ var dispose = function (subscriptions) {
                 return function __do() {
                     Data_Foldable.traverse_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableArray)(Data_Foldable.traverse_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableMaybe)(Control_XStream.cancelSubscription))(subscriptions)();
                     return Control_Monad_Eff.foreachE(names)(function (n) {
-                        var $37 = Data_StrMap.lookup(n)(proxies);
-                        if ($37 instanceof Data_Maybe.Just) {
-                            return function __do() {
-                                var p = $37.value0();
-                                return Control_XStream.shamefullySendComplete(Data_Unit.unit)(p)();
-                            };
+                        var $41 = Data_StrMap.lookup(n)(proxies);
+                        if ($41 instanceof Data_Maybe.Just) {
+                            return Control_XStream.shamefullySendComplete(Data_Unit.unit)($41.value0);
                         };
                         return Control_Applicative.pure(Control_Monad_Eff.applicativeEff)(Data_Unit.unit);
                     })();
@@ -15790,14 +15774,13 @@ var createSubscriptions = function (names) {
     return function (replicators) {
         return function (streams) {
             return Data_Traversable.traverseDefault(Data_Traversable.traversableArray)(Control_Monad_Eff.applicativeEff)(function (n) {
-                var $39 = Data_StrMap.lookup(n)(streams);
-                if ($39 instanceof Data_Maybe.Just) {
+                var $43 = Data_StrMap.lookup(n)(streams);
+                if ($43 instanceof Data_Maybe.Just) {
                     return function __do() {
-                        var v = $39.value0();
-                        var v1 = Data_StrMap.freezeST(replicators)();
-                        var $42 = Data_StrMap.lookup(n)(v1);
-                        if ($42 instanceof Data_Maybe.Just) {
-                            return Data_Functor.map(Control_Monad_Eff.functorEff)(Data_Maybe.Just.create)(Control_XStream.subscribe($42.value0)(v))();
+                        var v = Data_StrMap.freezeST(replicators)();
+                        var $45 = Data_StrMap.lookup(n)(v);
+                        if ($45 instanceof Data_Maybe.Just) {
+                            return Data_Functor.map(Control_Monad_Eff.functorEff)(Data_Maybe.Just.create)(Control_XStream.subscribe($45.value0)($43.value0))();
                         };
                         return Data_Maybe.Nothing.value;
                     };
@@ -15847,26 +15830,27 @@ var updatePBR = function (names) {
         return function (buffers) {
             return function (replicators) {
                 return Control_Monad_Eff.foreachE(names)(function (n) {
-                    var $49 = Data_StrMap.lookup(n)(sinkProxies);
-                    if ($49 instanceof Data_Maybe.Just) {
+                    var $52 = Data_StrMap.lookup(n)(sinkProxies);
+                    if ($52 instanceof Data_Maybe.Just) {
+                        var next = function (a) {
+                            return Control_XStream.shamefullySendNext(a)($52.value0);
+                        };
+                        var error = function (e) {
+                            return Control_XStream.shamefullySendError(e)($52.value0);
+                        };
                         return function __do() {
-                            var v = $49.value0();
-                            Debug_Trace.traceAnyM(Control_Monad_Eff.monadEff)(v)();
-                            var next = function (a) {
-                                return Control_XStream.shamefullySendNext(a)(v);
-                            };
-                            var error = function (e) {
-                                return Control_XStream.shamefullySendError(e)(v);
-                            };
                             callBuffer(n)(buffers)(next)(error)();
                             Data_StrMap_ST.poke(replicators)(n)({
                                 next: next, 
                                 error: error, 
-                                complete: function (v1) {
+                                complete: function (v) {
                                     return Control_Applicative.pure(Control_Monad_Eff.applicativeEff)(Data_Unit.unit);
                                 }
                             })();
-                            var v1 = Data_StrMap_ST.peek(replicators)(n)();
+                            var v = Data_StrMap_ST.peek(replicators)(n)();
+                            Data_Foldable.for_(Control_Monad_Eff.applicativeEff)(Data_Foldable.foldableMaybe)(v)(function ($62) {
+                                return $foreign._fixReplicator(Data_Newtype.unwrap(newtypeSinkReplicator)($62));
+                            })();
                             return Data_Unit.unit;
                         };
                     };
@@ -15891,21 +15875,18 @@ var replicateMany = function (sinks) {
 };
 var run = function (main) {
     return function (drivers) {
-        var sinkProxies = makeSinkProxies(drivers);
         return function __do() {
-            Debug_Trace.traceAnyM(Control_Monad_Eff.monadEff)(sinkProxies)();
-            var v = callDrivers(drivers)(sinkProxies)();
-            var sinks = main(v);
-            return replicateMany(sinks)(sinkProxies)();
+            var v = makeSinkProxies(drivers)();
+            Debug_Trace.traceAnyM(Control_Monad_Eff.monadEff)(v)();
+            var v1 = callDrivers(drivers)(v)();
+            var v2 = main(v1)();
+            return replicateMany(v2)(v)();
         };
     };
 };
 var addListener = function (listener) {
     return function (stream) {
-        return function __do() {
-            var s = Data_Newtype.unwrap(newtypeSink)(stream)();
-            return Control_XStream.addListener(listener)(s)();
-        };
+        return Control_XStream.addListener(listener)(Data_Newtype.unwrap(newtypeSink)(stream));
     };
 };
 module.exports = {
@@ -15920,7 +15901,6 @@ module.exports = {
     createSubscriptions: createSubscriptions, 
     dispose: dispose, 
     emptyProducer: emptyProducer, 
-    fixReplicator: fixReplicator, 
     makeSinkProxies: makeSinkProxies, 
     replicateMany: replicateMany, 
     run: run, 
@@ -15935,7 +15915,7 @@ module.exports = {
     _fixReplicator: $foreign._fixReplicator
 };
 
-},{"../Control.Applicative":3,"../Control.Bind":9,"../Control.Monad.Eff":32,"../Control.Monad.Eff.Class":20,"../Control.Monad.Eff.Console":22,"../Control.Monad.Eff.Exception":24,"../Control.Monad.ST":40,"../Control.XStream":53,"../Data.Array":58,"../Data.Eq":75,"../Data.Foldable":80,"../Data.Function":83,"../Data.Functor":87,"../Data.List":94,"../Data.Maybe":97,"../Data.Newtype":106,"../Data.StrMap":124,"../Data.StrMap.ST":122,"../Data.Traversable":130,"../Data.Tuple":131,"../Data.Unit":135,"../Debug.Trace":138,"../Prelude":144,"./foreign":145}],147:[function(require,module,exports){
+},{"../Control.Applicative":3,"../Control.Bind":9,"../Control.Monad.Eff":32,"../Control.Monad.Eff.Class":20,"../Control.Monad.Eff.Console":22,"../Control.Monad.Eff.Exception":24,"../Control.Monad.ST":40,"../Control.Semigroupoid":51,"../Control.XStream":53,"../Data.Array":58,"../Data.Eq":75,"../Data.Foldable":80,"../Data.Function":83,"../Data.Functor":87,"../Data.List":94,"../Data.Maybe":97,"../Data.Newtype":106,"../Data.StrMap":124,"../Data.StrMap.ST":122,"../Data.Traversable":130,"../Data.Tuple":131,"../Data.Unit":135,"../Debug.Trace":138,"../Prelude":144,"./foreign":145}],147:[function(require,module,exports){
 // Generated by psc version 0.10.7
 "use strict";
 var Proxy3 = (function () {
