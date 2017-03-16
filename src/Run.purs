@@ -22,13 +22,10 @@ type CycleEff s e a = XS.EffS (st :: ST s | e) a
 type Listener s e a = XS.Listener (st :: ST s | e) a
 type MemoryStream a = XS.Stream a
 
-newtype Source a = Source (MemoryStream a)
-derive instance newtypeSource :: Newtype (Source a) _
+type Source a = MemoryStream a
+type Sink a = MemoryStream a
 
-newtype Sink a = Sink (MemoryStream a)
-derive instance newtypeSink :: Newtype (Sink a) _
-
-type Driver s e a = Sink a -> String -> CycleEff s e (Source a)
+type Driver s e a b = Sink a -> String -> CycleEff s e (Source b)
 
 newtype DisposeFunction s e = DisposeFunction (Unit -> CycleEff s e Unit)
 
@@ -41,7 +38,7 @@ derive instance newtypeSinkReplicator :: Newtype (SinkReplicator s e a) _
 type Sources a = SM.StrMap (Source a)
 type Sinks a = SM.StrMap (Sink a)
 type SinkProxies a = SM.StrMap (Sink a)
-type Drivers s e a = SM.StrMap (Driver s e a)
+type Drivers s e a b = SM.StrMap (Driver s e a b)
 type ReplicationBuffers s a = SMT.STStrMap s (ReplicationBuffer a)
 type SinkReplicators s e a = SMT.STStrMap s (SinkReplicator s e a)
 
@@ -53,20 +50,20 @@ foreign import _fixReplicator
 emptyProducer :: forall s e a. CycleEff s e (MemoryStream a)
 emptyProducer = XS.createWithMemory { start: \_ -> pure unit, stop: \_ -> pure unit }
 
-makeSinkProxies :: forall s e a. Drivers s e a -> CycleEff s e (SinkProxies a)
+makeSinkProxies :: forall s e a b. Drivers s e a b -> CycleEff s e (SinkProxies a)
 makeSinkProxies drivers = do
   m <- SMT.new
   foreachE (SM.keys drivers) \k -> do
     s <- emptyProducer
-    SMT.poke m k (Sink s)
+    SMT.poke m k s
     pure unit
   SM.freezeST m
 
 callDrivers
-  :: forall s e a
-   . Drivers s e a
+  :: forall s e a b
+   . Drivers s e a b
   -> SinkProxies a
-  -> CycleEff s e (Sources a)
+  -> CycleEff s e (Sources b)
 callDrivers drivers sinkProxies = do
   sources <- SMT.new
   foreachE (SM.keys drivers) \k ->
@@ -127,7 +124,7 @@ createSubscriptions names replicators streams =
   traverseDefault
     (\n ->
       case (SM.lookup n streams) of
-        Just (Sink s) -> do
+        Just s -> do
           rs' <- SM.freezeST replicators
           case (SM.lookup n rs') of
             (Just (SinkReplicator r)) -> do
@@ -159,7 +156,7 @@ updatePBR
 updatePBR names sinkProxies buffers replicators =
   foreachE names \n ->
    case SM.lookup n sinkProxies of
-     Just (Sink listener) -> do
+     Just listener -> do
        let
          next = \a -> XS.shamefullySendNext a listener
          error = \e -> XS.shamefullySendError e listener
@@ -182,7 +179,7 @@ dispose subscriptions proxies names = DisposeFunction \_ -> do
 
   foreachE names \n ->
     case SM.lookup n proxies of
-      (Just (Sink proxy)) ->
+      (Just proxy) ->
                       XS.shamefullySendComplete unit proxy
       _ -> pure unit
 
@@ -202,20 +199,12 @@ replicateMany sinks sinkProxies = do
   pure $ dispose subscriptions sinkProxies names
 
 run
-  :: forall s e a
-   . (Sources a -> CycleEff s e (Sinks a))
-  -> Drivers s e a
+  :: forall s e a b
+   . (Sources b -> CycleEff s e (Sinks a))
+  -> Drivers s e a b
   -> CycleEff s e (DisposeFunction s e)
 run main drivers = do
   sinkProxies <- makeSinkProxies drivers
   sources <- callDrivers drivers sinkProxies
   sinks <- main sources
   replicateMany sinks sinkProxies
-
-addListener
-  :: forall s e a
-   . Listener s e a
-  -> Sink a
-  -> CycleEff s e Unit
-addListener listener stream =
-    XS.addListener listener (unwrap stream)

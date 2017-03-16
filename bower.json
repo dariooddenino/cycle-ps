@@ -10,7 +10,8 @@
     "purescript-prelude": "^2.5.0",
     "purescript-console": "^2.0.0",
     "purescript-xstream": "git://github.com/dariooddenino/purescript-xstream.git#585da5b68d25c161705c2d62321eef5efd9097de",
-    "purescript-maps": "^2.1.2"
+    "purescript-maps": "^2.1.2",
+    "purescript-snabbdom": "^0.2.3"
   },
   "devDependencies": {
     "purescript-psci-support": "^2.0.0",

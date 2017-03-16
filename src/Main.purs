@@ -3,30 +3,63 @@ module Main where
 import Prelude
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Timer (TIMER)
-import Control.Monad.ST (ST)
+import Control.Monad.ST (ST, STRef, newSTRef, readSTRef, modifySTRef, writeSTRef)
 import Control.Monad.Eff.Console (CONSOLE, log)
 import Run
 import Data.StrMap as StrMap
+import Data.StrMap.ST as StrMap.ST
 import Control.XStream as XS
 import Data.Tuple
+import Snabbdom
+import Data.Maybe
+import Data.Newtype
+import Debug.Trace
+
+h_ tag = h tag { attrs: StrMap.empty, on: toVNodeEventObject StrMap.empty,
+                 hook: toVNodeHookObjectProxy { insert: Nothing, update: Nothing, destroy: Nothing }}
+
+type Node s e = VNodeProxy (st :: ST s, stream :: XS.STREAM | e)
 
 main'
   :: forall s e
    . Sources Int
-  -> CycleEff s (timer :: TIMER | e) (Sinks Int)
-main' _ = do
-  s <- XS.periodic 500
-  pure $ StrMap.fromFoldable [(Tuple "TIMER" (Sink s))]
+  -> CycleEff s (timer :: TIMER, vdom :: VDOM | e) (Sinks (Node s (timer :: TIMER | e)))
+main' i = do
+   let input = StrMap.lookup "DOM" i
+   case input of
+     (Just stream) -> do
+       let
+         toDom j = h_ "div" [ text $ "Hello World:" <> show j]
+         sink = toDom <$> stream
+       pure $ StrMap.singleton "DOM" sink
+     _ -> do
+       e <- emptyProducer
+       pure $ StrMap.singleton "DOM" e
 
-logDriver
+mOrpatch
   :: forall s e
-   . Driver s (timer :: TIMER, console :: CONSOLE | e) Int
-logDriver sink k = do
-  addListener { next: \i -> log $ show i, error: const $ pure unit, complete: const $ pure unit } sink
-  e <- emptyProducer
-  pure $ Source e
+   . STRef s (Maybe (Node s e))
+  -> Node s e
+  -> CycleEff s (vdom :: VDOM | e) Unit
+mOrpatch currentDom newDom = do
+  cdom <- readSTRef currentDom
+  case cdom of
+    Nothing -> do
+      writeSTRef currentDom $ Just newDom
+      patchInitialSelector "#app" newDom
+    Just dom -> do
+      void $ writeSTRef currentDom $ Just newDom
+      patch dom newDom
 
-main :: forall s e. CycleEff s (timer :: TIMER, console :: CONSOLE | e) Unit
+domDriver
+  :: forall s e
+   . Driver s (vdom :: VDOM, timer :: TIMER | e) (Node s (timer :: TIMER | e)) Int
+domDriver sink k = do
+  vdom <- newSTRef Nothing
+  XS.addListener { next: \n -> mOrpatch vdom n, error: const $ pure unit, complete: const $pure unit } sink
+  e <- XS.periodic 1000
+  pure e
+
+main :: forall s e. CycleEff s (vdom :: VDOM, timer :: TIMER | e) Unit
 main = do
-  log "Starting"
-  void $ run main' (StrMap.fromFoldable [(Tuple "TIMER" logDriver)])
+  void $ run main' (StrMap.fromFoldable [(Tuple "DOM" domDriver)])
