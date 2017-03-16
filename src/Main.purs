@@ -10,6 +10,7 @@ import Data.StrMap as StrMap
 import Data.StrMap.ST as StrMap.ST
 import Control.XStream as XS
 import Data.Tuple
+import Data.Array (range)
 import Snabbdom
 import Data.Maybe
 import Data.Newtype
@@ -29,7 +30,7 @@ main' i = do
    case input of
      (Just stream) -> do
        let
-         toDom j = h_ "div" [ text $ "Hello World:" <> show j]
+         toDom j = h_ "div" $ (\j' -> h_ "p" [text $ "Hello World:" <> show j']) <$> (range 0 j)
          sink = toDom <$> stream
        pure $ StrMap.singleton "DOM" sink
      _ -> do
