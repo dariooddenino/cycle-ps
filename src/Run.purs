@@ -1,22 +1,17 @@
 module Run where
 
-import Prelude
-
-import Control.Monad.Eff (Eff, foreachE)
+import Data.Newtype (class Newtype, over, unwrap)
+import Prelude (Unit, bind, discard, pure, unit, void, ($), (<$>), (<<<))
+import Control.Monad.Eff (foreachE)
 import Control.Monad.Eff.Exception (Error)
-import Control.Monad.Eff.Console (log, logShow)
-import Control.Monad.Eff.Class (liftEff)
-import Control.XStream as XS
-import Data.StrMap as SM
 import Control.Monad.ST (ST)
+import Control.XStream as XS
+import Data.Array (intersect, snoc)
+import Data.Maybe (Maybe(Just, Nothing))
+import Data.StrMap as SM
 import Data.StrMap.ST as SMT
-import Data.Tuple (Tuple(..))
-import Data.Maybe (isJust, Maybe(..))
-import Data.List (catMaybes)
-import Data.Array (intersect, foldM, snoc, filter)
-import Data.Traversable (sequenceDefault, traverseDefault, traverse_, for_)
-import Debug.Trace
-import Data.Newtype
+import Data.Traversable (for_, traverseDefault, traverse_)
+
 
 type CycleEff s e a = XS.EffS (st :: ST s | e) a
 type Listener s e a = XS.Listener (st :: ST s | e) a
@@ -35,6 +30,7 @@ derive instance newtypeReplicationBuffer :: Newtype (ReplicationBuffer a) _
 newtype SinkReplicator s e a = SinkReplicator (Listener s e a)
 derive instance newtypeSinkReplicator :: Newtype (SinkReplicator s e a) _
 
+-- All these should become plain records.
 type Sources a = SM.StrMap (Source a)
 type Sinks a = SM.StrMap (Sink a)
 type SinkProxies a = SM.StrMap (Sink a)
@@ -68,7 +64,6 @@ callDrivers drivers sinkProxies = do
   sources <- SMT.new
   foreachE (SM.keys drivers) \k ->
     for_ (SM.lookup k drivers) \driver -> do
---      d <- driver
       for_ (SM.lookup k sinkProxies) \s -> do
         source <- driver s k
         SMT.poke sources k source

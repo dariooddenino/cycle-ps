@@ -1,21 +1,19 @@
 module Main where
 
-import Prelude
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Timer (TIMER)
-import Control.Monad.ST (ST, STRef, newSTRef, readSTRef, modifySTRef, writeSTRef)
-import Control.Monad.Eff.Console (CONSOLE, log)
-import Run
-import Data.StrMap as StrMap
-import Data.StrMap.ST as StrMap.ST
-import Control.XStream as XS
-import Data.Tuple
-import Data.Array (range)
-import Snabbdom
-import Data.Maybe
-import Data.Newtype
-import Debug.Trace
+import Prelude (Unit, bind, const, discard, pure, show, unit, void, ($), (<$>), (<>))
 
+import Control.Monad.Eff.Timer (TIMER)
+import Control.Monad.ST (ST, STRef, newSTRef, readSTRef, writeSTRef)
+import Run (CycleEff, Driver, Sinks, Sources, emptyProducer, run)
+import Data.StrMap as StrMap
+import Control.XStream as XS
+import Data.Tuple (Tuple(..))
+import Data.Array (range)
+import Snabbdom (VDOM, VNodeProxy, h, patch, patchInitialSelector, text, toVNodeEventObject, toVNodeHookObjectProxy)
+import Data.Maybe (Maybe(..))
+
+
+h_ :: forall a. String -> Array (VNodeProxy a) -> VNodeProxy a
 h_ tag = h tag { attrs: StrMap.empty, on: toVNodeEventObject StrMap.empty,
                  hook: toVNodeHookObjectProxy { insert: Nothing, update: Nothing, destroy: Nothing }}
 
