@@ -1,5 +1,5 @@
 {
-  "name": "cycle-ps",
+  "name": "purescript-cycle-run",
   "ignore": [
     "**/.*",
     "node_modules",
