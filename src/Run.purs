@@ -1,4 +1,4 @@
-module Run where
+module Cycle.Run where
 
 import Data.Newtype (class Newtype, over, unwrap)
 import Prelude (Unit, bind, discard, pure, unit, void, ($), (<$>), (<<<))
