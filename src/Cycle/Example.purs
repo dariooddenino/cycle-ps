@@ -1,4 +1,4 @@
-module Main where
+module Cycle.Example where
 
 import Prelude (Unit, bind, const, discard, pure, show, unit, void, ($), (<$>), (<>))
 
