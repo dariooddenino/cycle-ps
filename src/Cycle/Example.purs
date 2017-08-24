@@ -4,7 +4,7 @@ import Prelude (Unit, bind, const, discard, pure, show, unit, void, ($), (<$>), 
 
 import Control.Monad.Eff.Timer (TIMER)
 import Control.Monad.ST (ST, STRef, newSTRef, readSTRef, writeSTRef)
-import Run (CycleEff, Driver, Sinks, Sources, emptyProducer, run)
+import Cycle.Run (CycleEff, Driver, Sinks, Sources, emptyProducer, run)
 import Data.StrMap as StrMap
 import Control.XStream as XS
 import Data.Tuple (Tuple(..))
