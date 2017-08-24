@@ -46,7 +46,7 @@ mOrpatch currentDom newDom = do
   cdom <- readSTRef currentDom
   case cdom of
     Nothing -> do
-      writeSTRef currentDom $ Just newDom
+      _ <- writeSTRef currentDom $ Just newDom
       patchInitialSelector "#app" newDom
     Just dom -> do
       void $ writeSTRef currentDom $ Just newDom

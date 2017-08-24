@@ -7,14 +7,14 @@
     "output"
   ],
   "dependencies": {
-    "purescript-prelude": "^2.5.0",
-    "purescript-console": "^2.0.0",
-    "purescript-xstream": "git://github.com/dariooddenino/purescript-xstream.git#585da5b68d25c161705c2d62321eef5efd9097de",
-    "purescript-maps": "^2.1.2",
-    "purescript-snabbdom": "^0.2.3"
+    "purescript-prelude": "^3.1.0",
+    "purescript-console": "^3.0.0",
+    "purescript-xstream": "^0.9.1",
+    "purescript-maps": "^3.5.1",
+    "purescript-snabbdom": "^1.0.0"
   },
   "devDependencies": {
-    "purescript-psci-support": "^2.0.0",
-    "purescript-debug": "^2.0.0"
+    "purescript-psci-support": "^3.0.0",
+    "purescript-debug": "^3.0.0"
   }
 }

@@ -55,7 +55,7 @@ makeSinkProxies drivers = do
   m <- SMT.new
   foreachE (SM.keys drivers) \k -> do
     s <- emptyProducer
-    SMT.poke m k s
+    _ <- SMT.poke m k s
     pure unit
   SM.freezeST m
 
@@ -107,8 +107,8 @@ updateBuffersAndReplicators
 updateBuffersAndReplicators names buffers replicators =
   foreachE names (f buffers replicators) where
     f b r n = do
-      SMT.poke b n (ReplicationBuffer { _n: [], _e: [] })
-      SMT.poke r n (SinkReplicator { next: \i -> updateBufferNext b n i
+      _ <- SMT.poke b n (ReplicationBuffer { _n: [], _e: [] })
+      _ <- SMT.poke r n (SinkReplicator { next: \i -> updateBufferNext b n i
                                    , error: \e -> updateBufferError b n e
                                    , complete: \_ -> pure unit
                                    })
@@ -161,7 +161,7 @@ updatePBR names sinkProxies buffers replicators =
          next = \a -> XS.shamefullySendNext a listener
          error = \e -> XS.shamefullySendError e listener
        callBuffer n buffers next error
-       SMT.poke replicators n (SinkReplicator { next: next, error: error, complete: \_ -> pure unit })
+       _ <- SMT.poke replicators n (SinkReplicator { next: next, error: error, complete: \_ -> pure unit })
        r <- SMT.peek replicators n
        for_ r (_fixReplicator <<< unwrap)
        pure unit
